@@ -51,21 +51,22 @@ html, body, [class*="css"] {
     color: var(--text-primary);
 }
 
-/* Hide streamlit branding */
 #MainMenu, footer, header { visibility: visible; }
-
-
 
 .block-container { padding: 1.5rem 2rem; max-width: 100%; }
 
-/* Sidebar */
 [data-testid="stSidebar"] {
     background: var(--bg-card) !important;
     border-right: 1px solid var(--border);
 }
 [data-testid="stSidebar"] * { color: var(--text-primary) !important; }
 
-/* Metric cards */
+/* FIX: Force the folium iframe to fill its container */
+iframe {
+    width: 100% !important;
+    min-height: 480px !important;
+}
+
 .metric-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -94,7 +95,6 @@ html, body, [class*="css"] {
 .metric-green  { color: var(--accent-green); }
 .metric-blue   { color: var(--accent-blue); }
 
-/* Alert banner */
 .alert-banner {
     background: linear-gradient(135deg, #7f1d1d, #991b1b);
     border: 1px solid var(--accent-red);
@@ -116,7 +116,6 @@ html, body, [class*="css"] {
 }
 .alert-text { font-size: 0.9rem; color: #fecaca; margin-top: 0.2rem; }
 
-/* Section headers */
 .section-header {
     font-family: 'Space Mono', monospace;
     font-size: 0.7rem;
@@ -128,12 +127,10 @@ html, body, [class*="css"] {
     margin-bottom: 1rem;
 }
 
-/* Risk table */
 .risk-high   { color: #ef4444; font-weight: 700; }
 .risk-medium { color: #f97316; font-weight: 600; }
 .risk-low    { color: #22c55e; }
 
-/* Dispatch card */
 .dispatch-card {
     background: var(--bg-card2);
     border-left: 3px solid var(--accent-red);
@@ -145,7 +142,6 @@ html, body, [class*="css"] {
 .dispatch-card.medium { border-left-color: var(--accent-orange); }
 .dispatch-card.low    { border-left-color: var(--accent-green); }
 
-/* Top header bar */
 .top-header {
     display: flex;
     align-items: center;
@@ -249,8 +245,6 @@ with st.sidebar:
     if st.button("Retrain Model & Fetch API", use_container_width=True, type="primary"):
         with st.status("🚀 Running Auto Pipeline...", expanded=True) as status:
             st.write("Initializing incremental fetch and retraining...")
-            
-            # Capture stdout to show logs in dashboard
             f = io.StringIO()
             with contextlib.redirect_stdout(f):
                 try:
@@ -259,11 +253,8 @@ with st.sidebar:
                     st.text_area("Pipeline Logs", value=logs, height=300)
                 except Exception as e:
                     st.error(f"Pipeline failed: {e}")
-            
-            # Clear cache so new data is loaded
             st.cache_data.clear()
             st.cache_resource.clear()
-            
             status.update(label="✅ Pipeline Complete! Data refreshed.", state="complete", expanded=False)
             st.toast("Model retrained and data updated!")
             st.rerun()
@@ -282,7 +273,6 @@ df["adjusted_label"] = pd.cut(
 ).astype(str)
 df["alert"] = (df["adjusted_score"] >= threshold).astype(int)
 
-# Filter by selected risk levels
 df_filtered = df[df["adjusted_label"].isin(show_risk)]
 
 # ─────────────────────────────────────────
@@ -291,8 +281,7 @@ df_filtered = df[df["adjusted_label"].isin(show_risk)]
 st.markdown(f"""
 <div class="top-header">
     <div>
-        <br>
-        <br>
+        <br><br>
         <div class="brand-title">🛡️ SafeCity Montgomery</div>
         <div class="brand-sub">Proactive Environmental Safety Predictor — Real-time Risk Intelligence</div>
     </div>
@@ -300,7 +289,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# Weather alert banner
 if weather_event != "None (baseline)":
     st.markdown(f"""
     <div class="alert-banner">
@@ -341,51 +329,82 @@ map_col, right_col = st.columns([2, 1])
 with map_col:
     st.markdown('<div class="section-header">Risk Heatmap — Montgomery, AL</div>', unsafe_allow_html=True)
 
-    # Build Folium map
-    center_lat = df["cell_lat"].median()
-    center_lon = df["cell_lon"].median()
+    # ── FIX: compute center robustly ──────────────────────────────────────────
+    valid_coords = df_filtered.dropna(subset=["cell_lat", "cell_lon"])
+
+    if len(valid_coords) > 0:
+        center_lat = float(valid_coords["cell_lat"].median())
+        center_lon = float(valid_coords["cell_lon"].median())
+    else:
+        # Montgomery, AL fallback coords
+        center_lat = 32.3617
+        center_lon = -86.2792
+
+    # ── Build Folium map ──────────────────────────────────────────────────────
     m = folium.Map(
         location=[center_lat, center_lon],
         zoom_start=11,
-        tiles="CartoDB dark_matter"
+        tiles="CartoDB dark_matter",
+        prefer_canvas=True,       # FIX: canvas renderer is faster & more reliable
     )
 
     if map_type == "Heatmap":
-        heat_data = [
-            [row["cell_lat"], row["cell_lon"], row["adjusted_score"]]
-            for _, row in df_filtered.iterrows()
-            if pd.notna(row["cell_lat"]) and pd.notna(row["cell_lon"])
-        ]
-        HeatMap(
-            heat_data,
-            radius=15,
-            blur=20,
-            gradient={"0.0": "green", "0.5": "yellow", "0.75": "orange", "1.0": "red"}
-        ).add_to(m)
+        # ── FIX: build heat_data only from fully valid rows ───────────────────
+        heat_data = (
+            valid_coords[["cell_lat", "cell_lon", "adjusted_score"]]
+            .dropna()
+            .values
+            .tolist()
+        )
+
+        if len(heat_data) > 0:
+            HeatMap(
+                heat_data,
+                name="Risk Heatmap",
+                radius=15,
+                blur=20,
+                max_zoom=13,
+                min_opacity=0.3,       # FIX: ensures tiles paint even at low scores
+                gradient={
+                    "0.0": "#22c55e",
+                    "0.4": "#eab308",
+                    "0.7": "#f97316",
+                    "1.0": "#ef4444"
+                }
+            ).add_to(m)
+        else:
+            st.warning("No valid coordinate data to display on heatmap.")
 
     else:  # Markers
         color_map = {"High": "red", "Medium": "orange", "Low": "green"}
-        sample = df_filtered.sample(min(500, len(df_filtered)), random_state=42)
+        sample = valid_coords.sample(min(500, len(valid_coords)), random_state=42)
         for _, row in sample.iterrows():
-            if pd.notna(row["cell_lat"]) and pd.notna(row["cell_lon"]):
-                folium.CircleMarker(
-                    location=[row["cell_lat"], row["cell_lon"]],
-                    radius=6,
-                    color=color_map.get(str(row["adjusted_label"]), "gray"),
-                    fill=True,
-                    fill_opacity=0.7,
-                    popup=folium.Popup(
-                        f"<b>Risk: {row['adjusted_label']}</b><br>"
-                        f"Score: {row['adjusted_score']:.3f}<br>"
-                        f"Cell: {row['grid_cell']}",
-                        max_width=200
-                    )
-                ).add_to(m)
+            folium.CircleMarker(
+                location=[float(row["cell_lat"]), float(row["cell_lon"])],
+                radius=6,
+                color=color_map.get(str(row["adjusted_label"]), "gray"),
+                fill=True,
+                fill_opacity=0.7,
+                popup=folium.Popup(
+                    f"<b>Risk: {row['adjusted_label']}</b><br>"
+                    f"Score: {row['adjusted_score']:.3f}<br>"
+                    f"Cell: {row['grid_cell']}",
+                    max_width=200
+                )
+            ).add_to(m)
 
-    st_folium(m, width=None, height=480)
+    # ── FIX: pass explicit pixel dimensions + unique key ─────────────────────
+    # width must be an int (pixels), NOT None — None causes blank render in
+    # some versions of streamlit-folium.
+    st_folium(
+        m,
+        width=750,          # explicit px width prevents blank iframe bug
+        height=480,
+        returned_objects=[],   # FIX: skip return value serialization (faster)
+        key=f"folium_map_{map_type}_{weather_event}_{'-'.join(sorted(show_risk))}",
+    )
 
 with right_col:
-    # Risk distribution donut
     st.markdown('<div class="section-header">Risk Distribution</div>', unsafe_allow_html=True)
 
     risk_counts = df["adjusted_label"].value_counts()
@@ -414,7 +433,6 @@ with right_col:
     )
     st.plotly_chart(fig_donut, use_container_width=True)
 
-    # Top dispatch alerts
     st.markdown('<div class="section-header">Top Dispatch Alerts</div>', unsafe_allow_html=True)
 
     top_alerts = df[df["alert"] == 1].nlargest(6, "adjusted_score")[
@@ -446,17 +464,13 @@ b1, b2, b3 = st.columns(3)
 
 with b1:
     st.markdown('<div class="section-header">Risk Score Distribution</div>', unsafe_allow_html=True)
-    fig_hist = px.histogram(
-        df, x="adjusted_score", nbins=40,
-        color_discrete_sequence=["#3b82f6"]
-    )
+    fig_hist = px.histogram(df, x="adjusted_score", nbins=40, color_discrete_sequence=["#3b82f6"])
     fig_hist.add_vline(x=threshold, line_dash="dash", line_color="#ef4444",
                        annotation_text="Threshold", annotation_font_color="#ef4444")
     fig_hist.update_layout(
         paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
         font_color="#f1f5f9", margin=dict(t=10,b=30,l=30,r=10),
-        height=220, xaxis_title="Risk Score", yaxis_title="Grid Cells",
-        showlegend=False
+        height=220, xaxis_title="Risk Score", yaxis_title="Grid Cells", showlegend=False
     )
     fig_hist.update_xaxes(gridcolor="#1e293b")
     fig_hist.update_yaxes(gridcolor="#1e293b")
@@ -487,9 +501,6 @@ with b3:
     st.markdown('<div class="section-header">Alerts by Risk Level</div>', unsafe_allow_html=True)
     alert_breakdown = df[df["alert"]==1]["adjusted_label"].value_counts().reset_index()
     alert_breakdown.columns = ["Risk Level", "Count"]
-    color_seq = []
-    for lbl in alert_breakdown["Risk Level"]:
-        color_seq.append("#ef4444" if lbl=="High" else "#f97316" if lbl=="Medium" else "#22c55e")
     fig_bar = px.bar(
         alert_breakdown, x="Risk Level", y="Count",
         color="Risk Level",
