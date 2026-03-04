@@ -246,18 +246,56 @@ with st.sidebar:
         with st.status("🚀 Running Auto Pipeline...", expanded=True) as status:
             st.write("Initializing incremental fetch and retraining...")
             f = io.StringIO()
+            result = None
             with contextlib.redirect_stdout(f):
                 try:
-                    auto_pipeline.main()
-                    logs = f.getvalue()
-                    st.text_area("Pipeline Logs", value=logs, height=300)
+                    result = auto_pipeline.main()
                 except Exception as e:
                     st.error(f"Pipeline failed: {e}")
+
+            logs = f.getvalue()
             st.cache_data.clear()
             st.cache_resource.clear()
             status.update(label="✅ Pipeline Complete! Data refreshed.", state="complete", expanded=False)
             st.toast("Model retrained and data updated!")
+
+            # Store results in session state so they persist across reruns
+            st.session_state["pipeline_result"] = result
+            st.session_state["pipeline_logs"] = logs
+
+    # ── Show persistent pipeline results until dismissed ──────
+    if "pipeline_result" in st.session_state and st.session_state["pipeline_result"]:
+        result = st.session_state["pipeline_result"]
+        st.markdown("---")
+        st.markdown("#### 📡 Data Fetch Summary")
+        for stat in result["fetch_stats"]:
+            label     = stat["label"]
+            new_rows  = stat["new_rows"]
+            total     = stat["total_rows"]
+            fetched   = stat["fetched"]
+            if fetched:
+                if stat["is_full"]:
+                    st.success(f"**{label}**: Full download — **{new_rows:,}** rows saved")
+                else:
+                    st.success(f"**{label}**: ✅ **{new_rows:,}** new rows fetched (total: {total:,})")
+            else:
+                st.info(f"**{label}**: ℹ️ No new data — already up to date ({total:,} rows on disk)")
+
+        st.markdown(f"⏱️ **Pipeline completed in {result['elapsed']}s**")
+
+        logs = st.session_state.get("pipeline_logs", "")
+        if logs:
+            with st.expander("📋 View Pipeline Logs", expanded=False):
+                st.text(logs)
+
+        if st.button("Dismiss & Refresh Data", use_container_width=True):
+            del st.session_state["pipeline_result"]
+            if "pipeline_logs" in st.session_state:
+                del st.session_state["pipeline_logs"]
+            st.cache_data.clear()
+            st.cache_resource.clear()
             st.rerun()
+        st.markdown("---")
 
     st.markdown("---")
     st.markdown(f"<small style='color:#64748b'>Model: Random Forest<br>Last run: {datetime.now().strftime('%Y-%m-%d %H:%M')}<br>Grid cells: {len(df):,}</small>", unsafe_allow_html=True)

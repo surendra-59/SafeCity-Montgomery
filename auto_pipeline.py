@@ -166,10 +166,12 @@ def _get_max_date_violations(out_path: str) -> str:
 
 
 def fetch_incremental(url: str, label: str, out_filename: str,
-                       where_clause: str) -> str:
+                       where_clause: str) -> tuple:
     """
     Fetch only new records (delta) and APPEND them to the existing CSV.
     Falls back to the existing file if the API returns nothing new.
+    Returns (out_path, stats_dict) where stats_dict contains:
+      label, new_rows, total_rows, is_full, fetched (bool)
     """
     out_path    = os.path.join(DATASET_DIR, out_filename)
     is_full     = (where_clause == "1=1")
@@ -180,8 +182,9 @@ def fetch_incremental(url: str, label: str, out_filename: str,
 
     if not new_records:
         if os.path.exists(out_path):
+            existing_rows = len(pd.read_csv(out_path, low_memory=False))
             log(f"  ✅ No new records — existing {out_filename} is up to date")
-            return out_path
+            return out_path, {"label": label, "new_rows": 0, "total_rows": existing_rows, "is_full": is_full, "fetched": False}
         else:
             log(f"  ✗  No data and no existing file — cannot continue")
             sys.exit(1)
@@ -193,17 +196,18 @@ def fetch_incremental(url: str, label: str, out_filename: str,
         # First run: just save
         df_new.to_csv(out_path, index=False)
         log(f"  💾 Saved {len(df_new):,} rows → {out_filename}")
+        return out_path, {"label": label, "new_rows": len(df_new), "total_rows": len(df_new), "is_full": True, "fetched": True}
     else:
         # Subsequent runs: append new rows to existing
         df_exist = pd.read_csv(out_path, low_memory=False)
         before   = len(df_exist)
         df_combined = pd.concat([df_exist, df_new], ignore_index=True)
         df_combined.drop_duplicates(inplace=True)
+        added = len(df_combined) - before
         df_combined.to_csv(out_path, index=False)
-        log(f"  💾 Appended {len(df_combined) - before:,} new rows "
+        log(f"  💾 Appended {added:,} new rows "
             f"(total: {len(df_combined):,}) → {out_filename}")
-
-    return out_path
+        return out_path, {"label": label, "new_rows": added, "total_rows": len(df_combined), "is_full": False, "fetched": True}
 
 
 def step0_fetch_api():
@@ -219,10 +223,10 @@ def step0_fetch_api():
     where_vio = _get_max_date_violations(path_vio)
 
     # Fetch only the delta (or full data on first run)
-    fetch_incremental(API_311, "311 Service Requests",  "311_requests_full.csv",              where_311)
-    fetch_incremental(API_VIO, "Code Violations",       "montgomery_code_violations_full.csv", where_vio)
+    _, stats_311 = fetch_incremental(API_311, "311 Service Requests",  "311_requests_full.csv",              where_311)
+    _, stats_vio = fetch_incremental(API_VIO, "Code Violations",       "montgomery_code_violations_full.csv", where_vio)
 
-    return path_311, path_vio
+    return path_311, path_vio, [stats_311, stats_vio]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1023,15 +1027,18 @@ def main():
     log(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     log(SEP)
 
-    step0_fetch_api()       # fetch fresh raw data
+    _, _, fetch_stats = step0_fetch_api()       # fetch fresh raw data
     step1_clean_311()       # Cell 1
     step2_clean_violations()# Cell 2
     step3_clean_sirens()    # Cell 3
     step4_feature_matrix()  # Cell 4
     step5_train_and_score() # Cell 5
 
-    log(f"\nTotal elapsed: {time.time() - t0:.1f}s")
+    elapsed = round(time.time() - t0, 1)
+    log(f"\nTotal elapsed: {elapsed}s")
     log("Dashboard files are up to date — refresh your Streamlit tab!")
+
+    return {"fetch_stats": fetch_stats, "elapsed": elapsed}
 
 
 if __name__ == "__main__":
