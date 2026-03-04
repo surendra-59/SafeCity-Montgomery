@@ -30,6 +30,9 @@ import json
 import requests
 from datetime import datetime
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ─────────────────────────────────────────
 # BRIGHT DATA PROXY CONFIGURATION

@@ -12,8 +12,13 @@ import os
 from datetime import datetime
 import contextlib
 import io
+from dotenv import load_dotenv
 import auto_pipeline
 import bright_data_weather
+import generate_report
+
+load_dotenv()
+
 
 # ─────────────────────────────────────────
 # PAGE CONFIG
@@ -277,7 +282,7 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("### 🔄 Model Maintenance")
-    if st.button("Retrain Model & Fetch API", use_container_width=True, type="primary"):
+    if st.button("Retrain Model & Fetch API", use_container_width="stretch", type="primary"):
         with st.status("🚀 Running Auto Pipeline...", expanded=True) as status:
             st.write("Initializing incremental fetch and retraining...")
             f = io.StringIO()
@@ -323,7 +328,7 @@ with st.sidebar:
             with st.expander("📋 View Pipeline Logs", expanded=False):
                 st.text(logs)
 
-        if st.button("Dismiss & Refresh Data", use_container_width=True):
+        if st.button("Dismiss & Refresh Data", use_container_width="stretch"):
             del st.session_state["pipeline_result"]
             if "pipeline_logs" in st.session_state:
                 del st.session_state["pipeline_logs"]
@@ -331,6 +336,24 @@ with st.sidebar:
             st.cache_resource.clear()
             st.rerun()
         st.markdown("---")
+
+    st.markdown("---")
+    st.markdown("### 📝 AI Safety Report")
+    if st.button("Generate AI Briefing", use_container_width="stretch", type="secondary"):
+        with st.spinner("🤖 Generating report with Gemini + Bright Data..."):
+            result = generate_report.generate_safety_report(
+                weather_data=live_weather,
+                weather_multiplier=weather_multiplier,
+                include_news=True,
+            )
+            st.session_state["ai_report"] = result
+
+    if "ai_report" in st.session_state:
+        rpt = st.session_state["ai_report"]
+        if rpt["success"]:
+            st.success("Report ready! See below the main dashboard.")
+        else:
+            st.error(f"Report failed: {rpt.get('error', 'Unknown')}")
 
     st.markdown("---")
     st.markdown(f"<small style='color:#64748b'>Model: Random Forest<br>Last run: {datetime.now().strftime('%Y-%m-%d %H:%M')}<br>Grid cells: {len(df):,}</small>", unsafe_allow_html=True)
@@ -515,7 +538,7 @@ with right_col:
             showarrow=False
         )]
     )
-    st.plotly_chart(fig_donut, use_container_width=True)
+    st.plotly_chart(fig_donut, use_container_width="stretch")
 
     st.markdown('<div class="section-header">Top Dispatch Alerts</div>', unsafe_allow_html=True)
 
@@ -588,7 +611,7 @@ with b1:
     )
     fig_hist.update_xaxes(gridcolor="#1e293b")
     fig_hist.update_yaxes(gridcolor="#1e293b")
-    st.plotly_chart(fig_hist, use_container_width=True)
+    st.plotly_chart(fig_hist, use_container_width="stretch")
 
 with b2:
     st.markdown('<div class="section-header">Top 10 Feature Importances</div>', unsafe_allow_html=True)
@@ -607,7 +630,7 @@ with b2:
         )
         fig_imp.update_xaxes(gridcolor="#1e293b")
         fig_imp.update_yaxes(gridcolor="#1e293b", tickfont=dict(size=10))
-        st.plotly_chart(fig_imp, use_container_width=True)
+        st.plotly_chart(fig_imp, use_container_width="stretch")
     else:
         st.info("feature_importance.csv not found.")
 
@@ -627,7 +650,7 @@ with b3:
     )
     fig_bar.update_xaxes(gridcolor="#1e293b")
     fig_bar.update_yaxes(gridcolor="#1e293b")
-    st.plotly_chart(fig_bar, use_container_width=True)
+    st.plotly_chart(fig_bar, use_container_width="stretch")
 
 # ─────────────────────────────────────────
 # DATA TABLE
@@ -637,7 +660,7 @@ with st.expander("📋 View Raw Risk Scores Table"):
     show_cols = [c for c in show_cols if c in df.columns]
     st.dataframe(
         df[show_cols].sort_values("adjusted_score", ascending=False),
-        use_container_width=True,
+        use_container_width="stretch",
         height=300
     )
     csv = df[show_cols].to_csv(index=False).encode("utf-8")
@@ -645,6 +668,43 @@ with st.expander("📋 View Raw Risk Scores Table"):
 
 with st.expander("📈 View Model Training & Evaluation Report"):
     if os.path.exists("model_evaluation.png"):
-        st.image("model_evaluation.png", caption="Last Calibration: ROC, PR Curves and Feature Importance", use_container_width=True)
+        st.image("model_evaluation.png", caption="Last Calibration: ROC, PR Curves and Feature Importance", use_container_width="stretch")
     else:
         st.info("Evaluation report image not found. Run 'Retrain Model' to generate it.")
+
+# ─────────────────────────────────────────
+# AI-GENERATED SAFETY REPORT
+# ─────────────────────────────────────────
+if "ai_report" in st.session_state and st.session_state["ai_report"]["success"]:
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-header">🤖 AI-Generated City Safety Briefing</div>', unsafe_allow_html=True)
+
+    rpt = st.session_state["ai_report"]
+
+    # Main report card
+    st.markdown(f"""
+    <div style="background: linear-gradient(135deg, #111827, #1a2235);
+                border: 1px solid #3b82f6; border-radius: 12px;
+                padding: 1.5rem 2rem; margin-bottom: 1rem;">
+        <div style="font-family: 'Space Mono', monospace; font-size: 0.7rem;
+                    letter-spacing: 0.15em; color: #60a5fa; margin-bottom: 1rem;
+                    text-transform: uppercase;">
+            SafeCity AI Briefing — {datetime.now().strftime('%B %d, %Y')}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown(rpt["report"])
+
+    # Expandable sections for transparency
+    col_a, col_b = st.columns(2)
+    with col_a:
+        with st.expander("📊 Raw Data Fed to AI"):
+            st.text(rpt.get("stats_summary", "N/A"))
+    with col_b:
+        with st.expander("📰 News Headlines Scraped (Bright Data)"):
+            st.text(rpt.get("news_headlines", "N/A"))
+
+    if st.button("🗑️ Dismiss Report"):
+        del st.session_state["ai_report"]
+        st.rerun()
