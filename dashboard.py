@@ -14,7 +14,7 @@ import contextlib
 import io
 from dotenv import load_dotenv
 import auto_pipeline
-import bright_data_weather
+import weather
 import generate_report
 
 load_dotenv()
@@ -213,7 +213,7 @@ with st.sidebar:
     st.markdown("### 🛡️ SafeCity Controls")
     st.markdown("---")
 
-    # ── LIVE WEATHER via Bright Data ────────────────────────
+    # ── LIVE WEATHER ────────────────────────
     st.markdown("**🌦️ Live Weather — Montgomery, AL**")
 
     # Cache weather for 10 minutes to avoid excessive API calls
@@ -221,12 +221,12 @@ with st.sidebar:
     def _fetch_weather():
         import urllib3
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        return bright_data_weather.get_live_weather()
+        return weather.get_live_weather()
 
     live_weather = _fetch_weather()
 
     if live_weather["success"]:
-        summary = bright_data_weather.get_weather_summary(live_weather)
+        summary = weather.get_weather_summary(live_weather)
         st.success(f"📡 {summary}")
         st.caption(f"Source: {live_weather['source']} · {live_weather['fetched_at']}")
         if live_weather["alerts"]:
@@ -340,7 +340,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 📝 AI Safety Report")
     if st.button("Generate AI Briefing", use_container_width="stretch", type="secondary"):
-        with st.spinner("🤖 Generating report with Gemini + Bright Data..."):
+        with st.spinner("🤖 Generating report with Grok AI + Bright Data..."):
             result = generate_report.generate_safety_report(
                 weather_data=live_weather,
                 weather_multiplier=weather_multiplier,
@@ -399,7 +399,7 @@ if weather_multiplier > 1.0:
 elif weather_is_live and live_weather["success"]:
     st.markdown(f"""
     <div style="background: #14532d; border: 1px solid #22c55e; border-radius: 10px; padding: 0.8rem 1.2rem; margin-bottom: 1rem;">
-        <div style="font-family: 'Space Mono', monospace; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.1em; color: #86efac;">🛰️ LIVE WEATHER — BRIGHT DATA</div>
+        <div style="font-family: 'Space Mono', monospace; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.1em; color: #86efac;">🛰️ LIVE WEATHER</div>
         <div style="font-size: 0.85rem; color: #bbf7d0; margin-top: 0.2rem;">{weather_event} · No elevated risk detected (×{weather_multiplier})</div>
     </div>
     """, unsafe_allow_html=True)
