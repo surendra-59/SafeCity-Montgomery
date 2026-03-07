@@ -72,6 +72,9 @@ def scrape_local_news() -> str:
         ),
     }
 
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
     headlines = []
     for url in NEWS_URLS:
         try:

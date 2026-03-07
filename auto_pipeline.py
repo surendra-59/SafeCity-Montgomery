@@ -278,10 +278,12 @@ def step1_clean_311():
 
     log(f"  After dropping duplicate lat/lon: {df.shape}")
 
-    # ── 4. Drop rows with missing Address ────────────────────
+    # ── 4. Drop rows with missing Address or bad coords ──────
     before = len(df)
     df.dropna(subset=["Address"], inplace=True)
-    log(f"  Dropped {before - len(df)} rows with missing Address → {df.shape}")
+    if "Latitude" in df.columns and "Longitude" in df.columns:
+        df = df[(df["Latitude"] != 0.0) | (df["Longitude"] != 0.0)]
+    log(f"  Dropped rows with missing Address or 0,0 coords → {df.shape}")
 
     # ── 5. Drop rows with missing Department ─────────────────
     df.dropna(subset=["Department"], inplace=True)
@@ -345,7 +347,7 @@ def step1_clean_311():
     log(f"  Shape after encoding: {df.shape}")
 
     # ── 13. Cleanup raw date / id columns ────────────────────
-    df.drop(columns=[c for c in ["Create_Date", "Close_Date", "OBJECTID"]
+    df.drop(columns=[c for c in ["OBJECTID"] 
                      if c in df.columns], inplace=True)
 
     log(f"\n✅ Final cleaned shape: {df.shape}")
@@ -484,7 +486,7 @@ def step2_clean_violations():
     log(f"  Shape after encoding: {df.shape}")
 
     # ── 19. Drop raw date + redundant columns ─────────────────
-    df.drop(columns=[c for c in ["CaseDate", "STATE"] if c in df.columns], inplace=True)
+    df.drop(columns=[c for c in ["STATE"] if c in df.columns], inplace=True)
 
     log(f"\n✅ Final cleaned shape: {df.shape}")
     out = os.path.join(DATASET_DIR, "violations_cleaned.csv")
@@ -621,27 +623,32 @@ def step4_feature_matrix():
     log(f"  Violations shape: {df_viol.shape}")
     log(f"  Sirens shape:     {df_sirens.shape}")
 
-    # ── 2. Reconstruct proxy date for 311 ────────────────────
-    log("\nReconstructing proxy dates...")
-    df_311["proxy_date"] = pd.to_datetime(
-        df_311["Year"].astype(str) + "-" +
-        df_311["create_month"].astype(str).str.zfill(2) + "-01",
-        errors="coerce"
-    )
-    ref_date      = df_311["proxy_date"].max()
-    df_311["days_ago"] = (ref_date - df_311["proxy_date"]).dt.days
-    log(f"  Reference date (latest): {ref_date.date()}")
-    log(f"  days_ago range: {df_311['days_ago'].min()} - {df_311['days_ago'].max()}")
-
-    # Violations proxy date
-    if "CaseDate" in df_viol.columns:
-        df_viol["CaseDate"] = pd.to_datetime(df_viol["CaseDate"], errors="coerce")
-    elif "case_month" in df_viol.columns and "case_year" in df_viol.columns:
-        df_viol["CaseDate"] = pd.to_datetime(
-            df_viol["case_year"].astype(str) + "-" +
-            df_viol["case_month"].astype(str).str.zfill(2) + "-01",
+    # ── 2. Calculate true days_ago for 311 & Violations ───────
+    log("\nCalculating days_ago...")
+    if "Create_Date" in df_311.columns:
+        df_311["Create_Date"] = pd.to_datetime(df_311["Create_Date"], errors="coerce")
+        ref_date = df_311["Create_Date"].dropna().max()
+        if pd.isna(ref_date):
+            ref_date = pd.Timestamp.now()
+        df_311["days_ago"] = (ref_date - df_311["Create_Date"]).dt.days
+    else:
+        # Fallback if Create_Date is missing
+        df_311["proxy_date"] = pd.to_datetime(
+            df_311["Year"].astype(str) + "-" +
+            df_311["create_month"].astype(str).str.zfill(2) + "-01",
             errors="coerce"
         )
+        ref_date = df_311["proxy_date"].max()
+        df_311["days_ago"] = (ref_date - df_311["proxy_date"]).dt.days
+
+    log(f"  Reference date (latest): {ref_date.date()}")
+    if "days_ago" in df_311.columns:
+        log(f"  days_ago range: {df_311['days_ago'].min()} - {df_311['days_ago'].max()}")
+
+    # Violations true date
+    if "CaseDate" in df_viol.columns:
+        df_viol["CaseDate"] = pd.to_datetime(df_viol["CaseDate"], errors="coerce")
+        df_viol["days_ago"] = (ref_date - df_viol["CaseDate"]).dt.days
 
     # ── 3. Build spatial grid ─────────────────────────────────
     log("\nBuilding spatial grid...")
@@ -661,37 +668,42 @@ def step4_feature_matrix():
     # ── 4. Aggregate 311 features ─────────────────────────────
     log("\nAggregating 311 features per grid cell...")
 
-    def agg_311_window(df, window_days, suffix):
-        sub = df[df["days_ago"] <= window_days]
+    def agg_311_window(df, min_days, max_days, suffix):
+        sub = df[(df["days_ago"] > min_days) & (df["days_ago"] <= max_days)]
         return sub.groupby("grid_cell").agg(**{
             f"complaint_count_{suffix}":   ("Request_ID", "count"),
             f"nuisance_count_{suffix}":    ("is_nuisance", "sum"),
             f"chronic_loc_count_{suffix}": ("is_chronic_location", "sum"),
         }).reset_index()
 
-    agg_30 = agg_311_window(df_311, 30, "30d")
-    agg_60 = agg_311_window(df_311, 60, "60d")
-    agg_90 = agg_311_window(df_311, 90, "90d")
+    TARGET_WINDOW = 30
+    # Use NON-OVERLAPPING historical windows to prevent label leakage
+    agg_30 = agg_311_window(df_311, TARGET_WINDOW, TARGET_WINDOW + 30, "30d")
+    agg_60 = agg_311_window(df_311, TARGET_WINDOW, TARGET_WINDOW + 60, "60d")
+    agg_90 = agg_311_window(df_311, TARGET_WINDOW, TARGET_WINDOW + 90, "90d")
+
+    # For general aggregate stats (like most_common_dept), exclude the target window
+    df_historical = df_311[df_311["days_ago"] > TARGET_WINDOW]
 
     agg_cols = {
         "total_complaints":         ("Request_ID",          "count"),
         "total_nuisance":           ("is_nuisance",          "sum"),
         "total_chronic_locations":  ("is_chronic_location",  "sum"),
-        "days_since_last_complaint":("days_ago",             "min"),
+        "days_since_last_complaint":("days_ago",             lambda x: x.min() - TARGET_WINDOW if len(x) > 0 else np.nan),
         "complaint_years_active":   ("Year",                 "nunique"),
         "most_common_dept":         ("department_encoded",
                                      lambda x: x.mode()[0] if len(x) > 0 else -1),
     }
-    if "resolution_days" in df_311.columns:
+    if "resolution_days" in df_historical.columns:
         agg_cols["avg_resolution_days"] = ("resolution_days", "mean")
 
-    agg_all = df_311.groupby("grid_cell").agg(**agg_cols).reset_index()
+    agg_all = df_historical.groupby("grid_cell").agg(**agg_cols).reset_index()
     agg_all["nuisance_rate"] = (agg_all["total_nuisance"] /
                                  agg_all["total_complaints"]).round(4)
 
-    call_col = [c for c in df_311.columns if "Call_Center" in c or "Call Center" in c]
+    call_col = [c for c in df_historical.columns if "Call_Center" in c or "Call Center" in c]
     if call_col:
-        call_agg = df_311.groupby("grid_cell")[call_col[0]].mean().reset_index()
+        call_agg = df_historical.groupby("grid_cell")[call_col[0]].mean().reset_index()
         call_agg.columns = ["grid_cell", "pct_call_center"]
         agg_all = agg_all.merge(call_agg, on="grid_cell", how="left")
 
@@ -719,7 +731,13 @@ def step4_feature_matrix():
             "lien_status_encoded", lambda x: (x == 2).sum())
         viol_agg_cols["avg_lien_status"]  = ("lien_status_encoded", "mean")
 
-    features_viol = df_viol.groupby("grid_cell").agg(**viol_agg_cols).reset_index()
+    # Restrict violations to purely historical data (> TARGET_WINDOW) to match 311 logic
+    if "days_ago" in df_viol.columns:
+        df_viol_hist = df_viol[df_viol["days_ago"] > TARGET_WINDOW]
+    else:
+        df_viol_hist = df_viol
+
+    features_viol = df_viol_hist.groupby("grid_cell").agg(**viol_agg_cols).reset_index()
     features_viol["open_violation_rate"]  = (features_viol["open_violations"]  /
                                               features_viol["total_violations"]).round(4)
     features_viol["env_violation_rate"]   = (features_viol["env_violations"]   /
@@ -759,7 +777,7 @@ def step4_feature_matrix():
 
     # ── 7. Build target variable ──────────────────────────────
     log("\nBuilding target variable...")
-    TARGET_WINDOW = 30
+    # TARGET_WINDOW is defined above, ensuring historical features don't leak label data
     df_future = df_311[df_311["days_ago"] <= TARGET_WINDOW]
     target = df_future.groupby("grid_cell").agg(
         target_nuisance_binary=("is_nuisance", lambda x: int(x.sum() > 0)),
@@ -932,6 +950,7 @@ def step5_train_and_score():
         df["risk_score"],
         bins=[0, 0.33, 0.66, 1.0],
         labels=["Low", "Medium", "High"],
+        include_lowest=True,
     )
     df["risk_flag"] = (df["risk_score"] >= best_threshold).astype(int)
 
