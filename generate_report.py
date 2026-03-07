@@ -26,12 +26,14 @@ load_dotenv()
 
 import streamlit as st
 
+# used this for deploying in Streamlit cloud 
 GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 BRIGHT_DATA_HOST = st.secrets["BRIGHT_DATA_HOST"]
 BRIGHT_DATA_PORT = st.secrets["BRIGHT_DATA_PORT"]
 BRIGHT_DATA_USERNAME = st.secrets["BRIGHT_DATA_USERNAME"]
 BRIGHT_DATA_PASSWORD = st.secrets["BRIGHT_DATA_PASSWORD"]
 
+# For local use this
 #GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 #BRIGHT_DATA_HOST     = os.environ.get("BRIGHT_DATA_HOST")
