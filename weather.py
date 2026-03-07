@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Add this to your .env file or paste it directly here for the hackathon
-WEATHER_API_KEY = os.environ.get(WEATHER_API_KEY)
+WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
 
 def get_live_weather() -> dict:
     # We use forecast.json instead of current.json to get the &alerts=yes parameter,
