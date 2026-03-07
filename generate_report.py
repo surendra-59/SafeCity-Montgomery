@@ -23,12 +23,12 @@ load_dotenv()
 # ─────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_API_KEY = os.environ.get(GROQ_API_KEY)
 
-BRIGHT_DATA_HOST     = os.environ.get("BRIGHT_DATA_HOST", "brd.superproxy.io")
-BRIGHT_DATA_PORT     = os.environ.get("BRIGHT_DATA_PORT", "33335")
-BRIGHT_DATA_USERNAME = os.environ.get("BRIGHT_DATA_USERNAME", "")
-BRIGHT_DATA_PASSWORD = os.environ.get("BRIGHT_DATA_PASSWORD", "")
+BRIGHT_DATA_HOST     = os.environ.get(BRIGHT_DATA_HOST)
+BRIGHT_DATA_PORT     = os.environ.get(BRIGHT_DATA_PORT)
+BRIGHT_DATA_USERNAME = os.environ.get(BRIGHT_DATA_USERNAME)
+BRIGHT_DATA_PASSWORD = os.environ.get(BRIGHT_DATA_PASSWORD)
 
 BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
 DATASET_DIR = os.path.join(BASE_DIR, "Dataset")
