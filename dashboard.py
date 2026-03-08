@@ -519,11 +519,13 @@ with right_col:
     st.markdown('<div class="section-header">Risk Distribution</div>', unsafe_allow_html=True)
 
     risk_counts = df["adjusted_label"].value_counts()
+    color_map = {"High": "#ef4444", "Medium": "#f97316", "Low": "#22c55e"}
+    pie_colors = [color_map.get(str(label), "#888888") for label in risk_counts.index]
     fig_donut = go.Figure(go.Pie(
         labels=risk_counts.index,
         values=risk_counts.values,
         hole=0.6,
-        marker_colors=["#ef4444", "#f97316", "#22c55e"],
+        marker_colors=pie_colors,
         textinfo="label+percent",
         textfont=dict(family="DM Sans", size=11),
     ))

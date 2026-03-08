@@ -17,7 +17,7 @@ load_dotenv()
 import streamlit as st
 
 # used this for deploying in Streamlit cloud 
-WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"]
+WEATHER_API_KEY = st.secrets["WEATHER_API_KEY"] or os.environ.get("WEATHER_API_KEY")
 
 # For local use this
 #WEATHER_API_KEY = os.environ.get("WEATHER_API_KEY")
