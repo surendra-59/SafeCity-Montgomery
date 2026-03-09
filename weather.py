@@ -29,12 +29,12 @@ def get_live_weather() -> dict:
 
     try:
         try:
-            timeout_val = int(st.secrets.get("WEATHER_API_TIMEOUT", 15))
+            timeout_val = int(st.secrets.get("WEATHER_API_TIMEOUT", 30))
         except Exception:
-            timeout_val = int(os.environ.get("WEATHER_API_TIMEOUT", 15))
+            timeout_val = int(os.environ.get("WEATHER_API_TIMEOUT", 30))
             
         import time
-        max_retries = 3
+        max_retries = 5
         data = {}
         
         for attempt in range(max_retries):
