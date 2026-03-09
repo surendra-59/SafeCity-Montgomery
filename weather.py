@@ -59,7 +59,12 @@ def get_live_weather() -> dict:
 
         # Parse National Weather Service alerts if any are active
         alerts_data = data.get("alerts", {}).get("alert", [])
-        alerts = [alert.get("event") for alert in alerts_data] if alerts_data else []
+        # alerts = [alert.get("event") for alert in alerts_data] if alerts_data else []
+        alerts = []
+        for alert in alerts_data:
+            event = alert.get("event")
+            if event and event not in alerts:
+                alerts.append(event)
 
         # Calculate risk multiplier for the machine learning model
         risk_multiplier = 1.0

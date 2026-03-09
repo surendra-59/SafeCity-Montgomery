@@ -234,6 +234,11 @@ with st.sidebar:
                 st.warning(f"🚨 {alert}")
     else:
         st.warning("⚠️ Live weather unavailable — use manual override below")
+    
+    # ── Retry Button for Weather ─────────────────────────
+    if st.button("🔄 Retry Weather"):
+        st.cache_data.clear()  # clear cached weather if using cache
+        st.rerun()              # rerun app to fetch weather again
 
     st.markdown("")
     weather_source = st.radio(
