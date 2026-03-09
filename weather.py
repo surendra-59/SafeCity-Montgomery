@@ -28,9 +28,27 @@ def get_live_weather() -> dict:
     url = f"https://api.weatherapi.com/v1/forecast.json?key={WEATHER_API_KEY}&q=Montgomery&days=1&aqi=no&alerts=yes"
 
     try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
+        try:
+            timeout_val = int(st.secrets.get("WEATHER_API_TIMEOUT", 15))
+        except Exception:
+            timeout_val = int(os.environ.get("WEATHER_API_TIMEOUT", 15))
+            
+        import time
+        max_retries = 3
+        data = {}
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url, timeout=timeout_val)
+                response.raise_for_status()
+                data = response.json()
+                break
+            except requests.exceptions.Timeout as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"Weather API timed out ({timeout_val}s) after {max_retries} attempts.")
+                time.sleep(2)
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"Weather API network error: {str(e)}")
         
         current = data.get("current", {})
         condition_text = current.get("condition", {}).get("text", "Unknown")

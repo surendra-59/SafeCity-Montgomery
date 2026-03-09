@@ -606,10 +606,36 @@ with right_col:
             
         # THE MERGE: Your Automated Discord Dispatch Integration
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("📲 Push Dispatch Orders to Discord", width="stretch", type="primary"):
-            WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+        
+        is_severe = (weather_multiplier >= 1.5) or ("severe" in weather_event.lower())
+        auto_send = False
+        
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        dispatch_file = "Dataset/.last_dispatch.txt"
+        
+        if is_severe:
+            last_dispatch = ""
+            if os.path.exists(dispatch_file):
+                with open(dispatch_file, "r") as f:
+                    last_dispatch = f.read().strip()
+            
+            if last_dispatch != today_str:
+                auto_send = True
+
+        if st.button("📲 Push Dispatch Orders to Discord", width="stretch", type="primary") or auto_send:
+            try:
+                WEBHOOK_URL = st.secrets["DISCORD_WEBHOOK_URL"]
+            except Exception:
+                WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+                
             import requests
             
+            if auto_send:
+                os.makedirs(os.path.dirname(dispatch_file), exist_ok=True)
+                with open(dispatch_file, "w") as f:
+                    f.write(today_str)
+                st.toast("⚠️ Severe Weather Detected: Automatic Daily Discord Dispatch triggered!")
+
             with st.spinner("Transmitting automated dispatch orders..."):
                 # Send alerts for the top 3 highest risk zones
                 for _, row in top_alerts.head(3).iterrows():
@@ -617,12 +643,14 @@ with right_col:
                     prob_score = row['adjusted_score'] * 100
                     historical_count = int(row.get('total_complaints', 0))
                     
+                    maps_url = f"https://www.google.com/maps?q={row['cell_lat']},{row['cell_lon']}"
+                    
                     payload = {
                         "content": "PROACTIVE CITY ALERT: ENVIRONMENTAL HAZARD PREDICTED",
                         "embeds": [
                             {
                                 "title": f"Dispatch Order: Vulnerable Sector {row['grid_cell']}",
-                                "description": f"**Location:** Coordinates {row['cell_lat']}, {row['cell_lon']}\n**Risk Level:** CRITICAL ({prob_score:.1f}% Probability Score)\n**Historical Baseline:** {historical_count} prior incidents.",
+                                "description": f"**Location:** Coordinates {row['cell_lat']}, {row['cell_lon']} ([View on Google Maps]({maps_url}))\n**Risk Level:** CRITICAL ({prob_score:.1f}% Probability Score)\n**Historical Baseline:** {historical_count} prior incidents.",
                                 "color": 16711680, 
                                 "fields": [
                                     {
@@ -640,7 +668,11 @@ with right_col:
                             }
                         ]
                     }
-                    requests.post(WEBHOOK_URL, json=payload)
+                    if WEBHOOK_URL:
+                        try:
+                            requests.post(WEBHOOK_URL, json=payload)
+                        except Exception as e:
+                            st.error(f"Failed to post to Discord: {e}")
             st.success("SUCCESS: Dispatch alerts successfully delivered to the communication channel!")
 
 # ─────────────────────────────────────────
